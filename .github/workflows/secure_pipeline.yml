@@ -1,0 +1,182 @@
+name: DevSecOps Security Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  security_scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Step 2: Set up Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'  # Specify the Python version you need
+
+      # Step 3: Install dependencies and security tools
+      - name: Install Dependencies and Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Install security tools
+          pip install bandit safety
+          # Install jq for JSON processing
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      # Optional Step 3.1: Install Flake8 for linting
+      - name: Install Flake8
+        run: pip install flake8
+
+      # Optional Step 3.2: Run Flake8 Linting
+      - name: Run Flake8 Linting
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      # Step 4: Static Code Analysis with Bandit
+      - name: Run Bandit Security Scan
+        run: |
+          bandit -r . -f json -o bandit-report.json
+        continue-on-error: true  # Continue even if vulnerabilities are found
+
+      # Step 5: Dependency Vulnerability Scanning with Safety
+      - name: Run Safety Dependency Scan
+        run: |
+          safety check -r requirements.txt -f json > safety-report.json || echo '{"vulnerabilities": []}' > safety-report.json
+        continue-on-error: true  # Continue even if vulnerabilities are found
+
+      # Step 6: Fail Workflow on Critical Vulnerabilities
+      - name: Fail on Critical Vulnerabilities
+        run: |
+          # Check if safety-report.json exists and is not empty
+          if [ -s safety-report.json ]; then
+            CRITICAL_SAFETY=$(jq '[.vulnerabilities[] | select(.severity=="high" or .severity=="critical")] | length' safety-report.json)
+          else
+            echo "safety-report.json not found or empty. Assuming no critical vulnerabilities."
+            CRITICAL_SAFETY=0
+          fi
+
+          # Check if bandit-report.json exists and is not empty
+          if [ -s bandit-report.json ]; then
+            CRITICAL_BANDIT=$(jq '[.results[] | select(.issue_severity=="HIGH" or .issue_severity=="CRITICAL")] | length' bandit-report.json)
+          else
+            echo "bandit-report.json not found or empty. Assuming no critical Bandit issues."
+            CRITICAL_BANDIT=0
+          fi
+
+          echo "Critical Bandit Issues: $CRITICAL_BANDIT"
+          echo "Critical Safety Vulnerabilities: $CRITICAL_SAFETY"
+
+          if [ "$CRITICAL_BANDIT" -gt 0 ] || [ "$CRITICAL_SAFETY" -gt 0 ]; then
+            echo "Critical vulnerabilities found. Failing the build."
+            exit 1
+          fi
+        shell: bash
+
+      # Step 7: Collect Reports
+      - name: Upload Bandit Report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+      - name: Upload Safety Report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: safety-report
+          path: safety-report.json
+
+      # Step 8: Generate Summary and Comment on PR
+      - name: Generate and Post Security Summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const banditReportPath = 'bandit-report.json';
+            const safetyReportPath = 'safety-report.json';
+
+            // Function to safely parse JSON
+            const parseJson = (path) => {
+              if (fs.existsSync(path)) {
+                const data = fs.readFileSync(path, 'utf8');
+                try {
+                  return JSON.parse(data);
+                } catch (error) {
+                  console.error(`Error parsing ${path}:`, error);
+                  return null;
+                }
+              }
+              return null;
+            };
+
+            // Read Bandit Report
+            let banditReport = parseJson(banditReportPath);
+            if (!banditReport) {
+              banditReport = { results: [] };
+            }
+
+            // Read Safety Report
+            let safetyReport = parseJson(safetyReportPath);
+            if (!safetyReport) {
+              safetyReport = { vulnerabilities: [] };
+            }
+
+            // Initialize summary
+            let summary = "## 🛡️ Security Scan Report\n\n";
+
+            // Bandit Results
+            summary += `### 🔒 Bandit Findings: ${banditReport.results.length} issue(s) found\n\n`;
+            if (banditReport.results.length > 0) {
+              summary += "| Severity | Issue | File | Line |\n| --- | --- | --- | --- |\n";
+              banditReport.results.forEach(issue => {
+                // Adjust field names based on actual report structure
+                const severity = issue.issue_severity || 'UNKNOWN';
+                const issueText = (issue.issue_text || '').replace(/\|/g, '\\|');
+                const filePath = issue.path || 'N/A';
+                const lineNumber = issue.line_number || 'N/A';
+                summary += `| ${severity} | ${issueText} | ${filePath} | ${lineNumber} |\n`;
+              });
+            } else {
+              summary += "No issues found by Bandit.\n";
+            }
+
+            summary += "\n";
+
+            // Safety Results
+            summary += `### 📦 Safety Dependency Findings: ${safetyReport.vulnerabilities.length} vulnerability(ies) found\n\n`;
+            if (safetyReport.vulnerabilities.length > 0) {
+              summary += "| Package | Vulnerability | Severity |\n| --- | --- | --- |\n";
+              safetyReport.vulnerabilities.forEach(vuln => {
+                // Escape pipe characters to prevent table formatting issues
+                const vulnDescription = (vuln.vulnerability || '').replace(/\|/g, '\\|');
+                const packageName = vuln.package || 'N/A';
+                const severity = vuln.severity || 'N/A';
+                summary += `| ${packageName} | ${vulnDescription} | ${severity} |\n`;
+              });
+            } else {
+              summary += "No vulnerabilities found by Safety.\n";
+            }
+
+            // Post the summary as a comment
+            const commentBody = summary;
+            const pr = context.payload.pull_request;
+            const issue_number = pr.number;
+
+            github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: issue_number,
+              body: commentBody
+            });
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
