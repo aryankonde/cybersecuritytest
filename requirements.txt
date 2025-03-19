@@ -1,0 +1,7 @@
+Flask==2.1.2
+# Add other project dependencies here
+
+# Security Tools
+bandit
+safety
+flake8
