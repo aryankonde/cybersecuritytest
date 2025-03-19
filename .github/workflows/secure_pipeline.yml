@@ -12,17 +12,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout the repository
       - name: Checkout Code
         uses: actions/checkout@v3
 
-      # Step 2: Set up Python environment
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # Step 3: Install dependencies and security tools
       - name: Install Dependencies and Tools
         run: |
           python -m pip install --upgrade pip
@@ -31,25 +28,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-      # Step 4: Run Flake8 Linting (Optional)
       - name: Install and Run Flake8
         run: |
           pip install flake8
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      # Step 5: Static Code Analysis with Bandit
       - name: Run Bandit Security Scan
         run: |
           bandit -r . -f json -o bandit-report.json
         continue-on-error: true
 
-      # Step 6: Dependency Vulnerability Scanning with Safety
       - name: Run Safety Dependency Scan
         run: |
           safety check -r requirements.txt -f json > safety-report.json || echo '{"vulnerabilities": []}' > safety-report.json
         continue-on-error: true
 
-      # Step 7: Fail Workflow on Critical Vulnerabilities
       - name: Fail on Critical Vulnerabilities
         run: |
           CRITICAL_SAFETY=$(jq '[.vulnerabilities[] | select(.severity=="high" or .severity=="critical")] | length' safety-report.json)
@@ -63,17 +56,20 @@ jobs:
             exit 1
           fi
 
-      # Step 8: Upload Security Reports
-      - name: Upload Security Reports
+      - name: Upload Bandit Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: security-reports
-          path: |
-            bandit-report.json
-            safety-report.json
+          name: bandit-report
+          path: bandit-report.json
 
-      # Step 9: Docker Scout Security Scan
+      - name: Upload Safety Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safety-report
+          path: safety-report.json
+
       - name: Log in to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
@@ -100,7 +96,6 @@ jobs:
             exit 1
           fi
 
-      # Step 10: Generate and Post Security Summary on PRs
       - name: Generate and Post Security Summary
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v6
@@ -128,9 +123,9 @@ jobs:
             let safetyReport = parseJson(safetyReportPath) || { vulnerabilities: [] };
             let dockerScoutReport = parseJson(dockerScoutPath) || { issues: [] };
 
-            let summary = "## 🛡️ Security Scan Report\n\n";
+            let summary = "## Security Scan Report\n\n";
 
-            summary += `### 🔒 Bandit Findings: ${banditReport.results.length} issue(s) found\n\n`;
+            summary += `### Bandit Findings: ${banditReport.results.length} issue(s) found\n\n`;
             if (banditReport.results.length > 0) {
               summary += "| Severity | Issue | File | Line |\n| --- | --- | --- | --- |\n";
               banditReport.results.forEach(issue => {
@@ -144,7 +139,7 @@ jobs:
               summary += "No issues found by Bandit.\n";
             }
 
-            summary += `\n### 📦 Safety Dependency Findings: ${safetyReport.vulnerabilities.length} vulnerability(ies) found\n\n`;
+            summary += `\n### Safety Dependency Findings: ${safetyReport.vulnerabilities.length} vulnerability(ies) found\n\n`;
             if (safetyReport.vulnerabilities.length > 0) {
               summary += "| Package | Vulnerability | Severity |\n| --- | --- | --- |\n";
               safetyReport.vulnerabilities.forEach(vuln => {
@@ -157,7 +152,7 @@ jobs:
               summary += "No vulnerabilities found by Safety.\n";
             }
 
-            summary += `\n### 🐳 Docker Scout Findings: ${dockerScoutReport.issues.length} issue(s) found\n\n`;
+            summary += `\n### Docker Scout Findings: ${dockerScoutReport.issues.length} issue(s) found\n\n`;
             if (dockerScoutReport.issues.length > 0) {
               summary += "| Severity | Issue |\n| --- | --- |\n";
               dockerScoutReport.issues.forEach(issue => {
