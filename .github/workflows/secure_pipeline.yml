@@ -45,8 +45,8 @@ jobs:
 
       - name: Fail on Critical Vulnerabilities
         run: |
-          CRITICAL_SAFETY=$(jq '[.vulnerabilities[] | select(.severity=="high" or .severity=="critical")] | length' safety-report.json)
-          CRITICAL_BANDIT=$(jq '[.results[] | select(.issue_severity=="HIGH" or .issue_severity=="CRITICAL")] | length' bandit-report.json)
+          CRITICAL_SAFETY=$(jq '[.vulnerabilities[] | select(.severity=="high" or .severity=="critical")] | length' safety-report.json || echo 0)
+          CRITICAL_BANDIT=$(jq '[.results[] | select(.issue_severity=="HIGH" or .issue_severity=="CRITICAL")] | length' bandit-report.json || echo 0)
 
           echo "Critical Bandit Issues: $CRITICAL_BANDIT"
           echo "Critical Safety Vulnerabilities: $CRITICAL_SAFETY"
@@ -91,7 +91,7 @@ jobs:
 
       - name: Fail on Critical Docker Issues
         run: |
-          CRITICAL_SCOUT=$(jq '[.issues[] | select(.severity=="high" or .severity=="critical")] | length' docker-scout-report.json)
+          CRITICAL_SCOUT=$(jq '[.issues[] | select(.severity=="high" or .severity=="critical")] | length' docker-scout-report.json || echo 0)
 
           echo "Critical Docker Scout Issues: $CRITICAL_SCOUT"
 
@@ -103,7 +103,7 @@ jobs:
   ai_fix_suggestions:
     name: AI Fix Suggestions
     runs-on: ubuntu-latest
-    needs: [security_scan, docker_scan]  # Ensures all scans are completed before running AI Fixer
+    needs: [security_scan, docker_scan]
 
     steps:
       - name: Checkout Code
@@ -131,3 +131,5 @@ jobs:
         run: python scripts/ai_fixer.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
