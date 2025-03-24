@@ -3,8 +3,8 @@ import json
 import requests
 from github import Github  # GitHub API to post comments
 
-OLLAMA_MODEL = "mistral:latest"  # Name of the model in Ollama
-OLLAMA_URL = "http://localhost:11434/api/generate"  # Ollama's API endpoint
+OLLAMA_MODEL = "mistral:latest"
+OLLAMA_URL = "http://localhost:11434/api/generate"
 
 # Load security reports
 def load_json(filepath):
@@ -16,7 +16,29 @@ def load_json(filepath):
 bandit_report = load_json("bandit-report.json")
 safety_report = load_json("safety-report.json")
 
-# Function to get AI-powered fix suggestions using Llama
+# Extract PR number correctly
+def get_pr_number():
+    github_event_path = os.getenv("GITHUB_EVENT_PATH")
+    if github_event_path and os.path.exists(github_event_path):
+        with open(github_event_path, "r") as f:
+            event_data = json.load(f)
+            return event_data.get("pull_request", {}).get("number")
+    return None
+
+# Ensure required GitHub environment variables exist
+github_token = os.getenv("GITHUB_TOKEN")
+repo_name = os.getenv("GITHUB_REPOSITORY")
+
+if not github_token or not repo_name:
+    print("❌ Error: Missing GitHub environment variables (GITHUB_TOKEN or GITHUB_REPOSITORY).")
+    exit(1)
+
+pr_number = get_pr_number()
+if pr_number is None:
+    print("❌ Error: Unable to extract PR number.")
+    exit(1)
+
+# Function to get AI-powered fix suggestions
 def get_fix_suggestion(issue_description):
     payload = {
         "model": OLLAMA_MODEL,
@@ -29,27 +51,8 @@ def get_fix_suggestion(issue_description):
         response.raise_for_status()  # Raise an error for bad responses
         return response.json().get("response", "No suggestion generated.")
     except requests.exceptions.RequestException as e:
-        print(f"Error contacting Ollama: {e}")
+        print(f"❌ Error contacting Ollama: {e}")
         return "Failed to get a response from AI."
-
-# Ensure GitHub environment variables exist
-github_token = os.getenv("GITHUB_TOKEN")
-repo_name = os.getenv("GITHUB_REPOSITORY")  # "owner/repo"
-event_path = os.getenv("GITHUB_EVENT_PATH")  # JSON file with event data
-
-if not github_token or not repo_name or not event_path:
-    print("Error: Missing GitHub environment variables.")
-    exit(1)
-
-def get_pr_number():
-    """Extract PR number from GitHub event payload"""
-    github_event_path = os.getenv("GITHUB_EVENT_PATH")
-    if github_event_path and os.path.exists(github_event_path):
-        with open(github_event_path, "r") as f:
-            event_data = json.load(f)
-            return event_data.get("pull_request", {}).get("number")
-
-    return None 
 
 # Generate Fix Suggestions
 fix_suggestions = []
@@ -75,13 +78,16 @@ if safety_report:
 
 # Post Fix Suggestions as GitHub Comments
 if fix_suggestions:
-    g = Github(github_token)
-    repo = g.get_repo(repo_name)
-    pr = repo.get_pull(pr_number)
+    try:
+        g = Github(github_token)
+        repo = g.get_repo(repo_name)
+        pr = repo.get_pull(pr_number)
 
-    comment_body = "**Automated Security Fix Suggestions**\n\n" + "\n\n".join(fix_suggestions)
-    pr.create_issue_comment(comment_body)
+        comment_body = "**🔒 Automated Security Fix Suggestions**\n\n" + "\n\n".join(fix_suggestions)
+        pr.create_issue_comment(comment_body)
 
-    print("Fix suggestions have been posted to the PR.")
+        print("✅ Fix suggestions have been posted to the PR.")
+    except Exception as e:
+        print(f"❌ Error posting to GitHub PR: {e}")
 else:
-    print("No security issues detected. No comment posted.")
+    print("✅ No security issues detected. No comment posted.")
