@@ -26,14 +26,14 @@ if not github_token or not repo_name:
           f"GITHUB_REPOSITORY: {repo_name}")
     exit(1)
 
-# Extract PR number correctly
+# Extract PR number (if this is a pull request event)
 def get_pr_number():
     github_event_path = os.getenv("GITHUB_EVENT_PATH")
     
     if not github_event_path or not os.path.exists(github_event_path):
-        print("Error: GITHUB_EVENT_PATH is missing or invalid. Ensure this runs in a pull request context.")
-        return None
-    
+        print("No pull request detected. Running in push mode.")
+        return None  # No PR found (push event)
+
     try:
         with open(github_event_path, "r") as f:
             event_data = json.load(f)
@@ -43,9 +43,6 @@ def get_pr_number():
         return None
 
 pr_number = get_pr_number()
-if pr_number is None:
-    print("Error: Unable to extract PR number. Ensure this workflow runs on a pull request event.")
-    exit(1)
 
 # Function to get AI-powered fix suggestions
 def get_fix_suggestion(issue_description):
@@ -85,18 +82,29 @@ if safety_report:
             fix_suggestions.append(f"**Package Issue:** {vuln_text}\n**Fix:** {fix_suggestion}")
             seen_issues.add(vuln_text)
 
-# Post Fix Suggestions as GitHub Comments
+# Prepare the output message
 if fix_suggestions:
-    try:
-        g = Github(github_token)
-        repo = g.get_repo(repo_name)
-        pr = repo.get_pull(pr_number)
+    comment_body = "**Automated Security Fix Suggestions**\n\n" + "\n\n".join(fix_suggestions)
 
-        comment_body = "**Automated Security Fix Suggestions**\n\n" + "\n\n".join(fix_suggestions)
-        pr.create_issue_comment(comment_body)
+    # If running on a PR, post a comment
+    if pr_number:
+        try:
+            g = Github(github_token)
+            repo = g.get_repo(repo_name)
+            pr = repo.get_pull(pr_number)
+            pr.create_issue_comment(comment_body)
+            print("Fix suggestions have been posted to the PR.")
+        except Exception as e:
+            print(f"Error posting to GitHub PR: {e}")
 
-        print("Fix suggestions have been posted to the PR.")
-    except Exception as e:
-        print(f"Error posting to GitHub PR: {e}")
+    # Always print the suggestions
+    print(comment_body)
+
+    # Save fix suggestions to a file for push events
+    with open("fix_suggestions.txt", "w") as f:
+        f.write(comment_body)
+    
+    print("Fix suggestions saved to fix_suggestions.txt")
+
 else:
-    print("No security issues detected. No comment posted.")
+    print("No security issues detected.")

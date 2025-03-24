@@ -131,4 +131,10 @@ jobs:
         run: python scripts/ai_fixer.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
+
+      - name: Upload AI Fix Suggestions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-fix-suggestions
+          path: fix_suggestions.txt
