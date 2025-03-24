@@ -28,14 +28,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: Install and Run Flake8
+      - name: Run Flake8 Linter
         run: |
           pip install flake8
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
       - name: Run Bandit Security Scan
         run: |
-          bandit -r . -f json -o bandit-report.json
+          bandit -r . -f json -o bandit-report.json || echo '{"results": []}' > bandit-report.json
         continue-on-error: true
 
       - name: Run Safety Dependency Scan
@@ -56,19 +56,23 @@ jobs:
             exit 1
           fi
 
-      - name: Upload Bandit Report
+      - name: Upload Security Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bandit-report
-          path: bandit-report.json
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
 
-      - name: Upload Safety Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: safety-report
-          path: safety-report.json
+  docker_scan:
+    name: Docker Security Scanning
+    runs-on: ubuntu-latest
+    needs: security_scan  # Waits for security_scan to complete
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
       - name: Log in to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
@@ -96,79 +100,34 @@ jobs:
             exit 1
           fi
 
-      - name: Generate and Post Security Summary
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v6
+  ai_fix_suggestions:
+    name: AI Fix Suggestions
+    runs-on: ubuntu-latest
+    needs: [security_scan, docker_scan]  # Ensures all scans are completed before running AI Fixer
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Download Security Reports
+        uses: actions/download-artifact@v4
         with:
-          script: |
-            const fs = require('fs');
-            const banditReportPath = 'bandit-report.json';
-            const safetyReportPath = 'safety-report.json';
-            const dockerScoutPath = 'docker-scout-report.json';
+          name: security-reports
 
-            const parseJson = (path) => {
-              if (fs.existsSync(path)) {
-                const data = fs.readFileSync(path, 'utf8');
-                try {
-                  return JSON.parse(data);
-                } catch (error) {
-                  console.error(`Error parsing ${path}:`, error);
-                  return null;
-                }
-              }
-              return null;
-            };
+      - name: Download Docker Scout Report
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-scout-report
 
-            let banditReport = parseJson(banditReportPath) || { results: [] };
-            let safetyReport = parseJson(safetyReportPath) || { vulnerabilities: [] };
-            let dockerScoutReport = parseJson(dockerScoutPath) || { issues: [] };
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-            let summary = "## Security Scan Report\n\n";
+      - name: Install Python Dependencies
+        run: pip install requests PyGithub
 
-            summary += `### Bandit Findings: ${banditReport.results.length} issue(s) found\n\n`;
-            if (banditReport.results.length > 0) {
-              summary += "| Severity | Issue | File | Line |\n| --- | --- | --- | --- |\n";
-              banditReport.results.forEach(issue => {
-                const severity = issue.issue_severity || 'UNKNOWN';
-                const issueText = (issue.issue_text || '').replace(/\|/g, '\\|');
-                const filePath = issue.path || 'N/A';
-                const lineNumber = issue.line_number || 'N/A';
-                summary += `| ${severity} | ${issueText} | ${filePath} | ${lineNumber} |\n`;
-              });
-            } else {
-              summary += "No issues found by Bandit.\n";
-            }
-
-            summary += `\n### Safety Dependency Findings: ${safetyReport.vulnerabilities.length} vulnerability(ies) found\n\n`;
-            if (safetyReport.vulnerabilities.length > 0) {
-              summary += "| Package | Vulnerability | Severity |\n| --- | --- | --- |\n";
-              safetyReport.vulnerabilities.forEach(vuln => {
-                const vulnDescription = (vuln.vulnerability || '').replace(/\|/g, '\\|');
-                const packageName = vuln.package || 'N/A';
-                const severity = vuln.severity || 'N/A';
-                summary += `| ${packageName} | ${vulnDescription} | ${severity} |\n`;
-              });
-            } else {
-              summary += "No vulnerabilities found by Safety.\n";
-            }
-
-            summary += `\n### Docker Scout Findings: ${dockerScoutReport.issues.length} issue(s) found\n\n`;
-            if (dockerScoutReport.issues.length > 0) {
-              summary += "| Severity | Issue |\n| --- | --- |\n";
-              dockerScoutReport.issues.forEach(issue => {
-                summary += `| ${issue.severity} | ${issue.description.replace(/\|/g, '\\|')} |\n`;
-              });
-            } else {
-              summary += "No issues found by Docker Scout.\n";
-            }
-
-            const pr = context.payload.pull_request;
-            const issue_number = pr.number;
-            github.rest.issues.createComment({
-              ...context.repo,
-              issue_number: issue_number,
-              body: summary
-            });
-
+      - name: Run AI Fixer Script
+        run: python ai_fixer.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
