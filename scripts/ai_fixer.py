@@ -41,15 +41,15 @@ if not github_token or not repo_name or not event_path:
     print("Error: Missing GitHub environment variables.")
     exit(1)
 
-# Extract PR number from GitHub event JSON
-with open(event_path, "r") as f:
-    event_data = json.load(f)
+def get_pr_number():
+    """Extract PR number from GitHub event payload"""
+    github_event_path = os.getenv("GITHUB_EVENT_PATH")
+    if github_event_path and os.path.exists(github_event_path):
+        with open(github_event_path, "r") as f:
+            event_data = json.load(f)
+            return event_data.get("pull_request", {}).get("number")
 
-pr_number = event_data.get("pull_request", {}).get("number")
-
-if not pr_number:
-    print("Error: Unable to extract PR number.")
-    exit(1)
+    return None 
 
 # Generate Fix Suggestions
 fix_suggestions = []
