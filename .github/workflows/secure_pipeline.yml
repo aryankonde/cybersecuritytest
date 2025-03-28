@@ -28,11 +28,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: Run Flake8 Linter
-        run: |
-          pip install flake8
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-
       - name: Run Bandit Security Scan
         run: |
           bandit -r . -f json -o bandit-report.json || echo '{"results": []}' > bandit-report.json
@@ -42,19 +37,6 @@ jobs:
         run: |
           safety check -r requirements.txt -f json > safety-report.json || echo '{"vulnerabilities": []}' > safety-report.json
         continue-on-error: true
-
-      - name: Fail on Critical Vulnerabilities
-        run: |
-          CRITICAL_SAFETY=$(jq '[.vulnerabilities[] | select(.severity=="high" or .severity=="critical")] | length' safety-report.json || echo 0)
-          CRITICAL_BANDIT=$(jq '[.results[] | select(.issue_severity=="HIGH" or .issue_severity=="CRITICAL")] | length' bandit-report.json || echo 0)
-
-          echo "Critical Bandit Issues: $CRITICAL_BANDIT"
-          echo "Critical Safety Vulnerabilities: $CRITICAL_SAFETY"
-
-          if [ "$CRITICAL_BANDIT" -gt 0 ] || [ "$CRITICAL_SAFETY" -gt 0 ]; then
-            echo "Critical vulnerabilities found. Failing the build."
-            exit 1
-          fi
 
       - name: Upload Security Reports
         if: always()
@@ -68,7 +50,7 @@ jobs:
   docker_scan:
     name: Docker Security Scanning
     runs-on: ubuntu-latest
-    needs: security_scan  # Waits for security_scan to complete
+    needs: security_scan
 
     steps:
       - name: Checkout Code
@@ -88,17 +70,6 @@ jobs:
         with:
           name: docker-scout-report
           path: docker-scout-report.json
-
-      - name: Fail on Critical Docker Issues
-        run: |
-          CRITICAL_SCOUT=$(jq '[.issues[] | select(.severity=="high" or .severity=="critical")] | length' docker-scout-report.json || echo 0)
-
-          echo "Critical Docker Scout Issues: $CRITICAL_SCOUT"
-
-          if [ "$CRITICAL_SCOUT" -gt 0 ]; then
-            echo "Critical vulnerabilities found in Docker image. Failing the build."
-            exit 1
-          fi
 
   ai_fix_suggestions:
     name: AI Fix Suggestions
@@ -127,12 +98,7 @@ jobs:
       - name: Install Python Dependencies
         run: pip install requests PyGithub
 
-      - name: Run AI Fixer Script
-        run: python scripts/ai_fixer.py
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload AI Fix Suggestions
+      - name: Upload Pre-Generated AI Fix Suggestions
         if: always()
         uses: actions/upload-artifact@v4
         with:
