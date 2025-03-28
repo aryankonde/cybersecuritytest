@@ -5,7 +5,7 @@
       "reason": "syntax error while parsing AST from file"
     }
   ],
-  "generated_at": "2025-03-28T07:07:31Z",
+  "generated_at": "2025-03-28T07:11:27Z",
   "metrics": {
     "./app_secure.py": {
       "CONFIDENCE.HIGH": 0,
@@ -34,7 +34,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 48,
+      "loc": 81,
       "nosec": 0,
       "skipped_tests": 0
     },
@@ -47,7 +47,7 @@
       "SEVERITY.LOW": 0,
       "SEVERITY.MEDIUM": 0,
       "SEVERITY.UNDEFINED": 0,
-      "loc": 118,
+      "loc": 151,
       "nosec": 0,
       "skipped_tests": 0
     }
