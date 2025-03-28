@@ -12,13 +12,12 @@ def load_json(filepath):
                 return json.load(f)
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON in {filepath}: {e}")
-    return {}
+    return []  # Return an empty list instead of a dictionary
 
 # Load security reports
-bandit_report = load_json("bandit-report.json")
-safety_report = load_json("safety-report.json")
+bandit_issues = load_json("bandit-report.json")
+safety_issues = load_json("safety-report.json")
 
-# Function to get AI-powered fix suggestions using Ollama
 def get_fix_suggestion(issue_description):
     payload = {
         "model": OLLAMA_MODEL,
@@ -37,7 +36,7 @@ fix_suggestions = []
 seen_issues = set()
 
 # Process Bandit Issues
-for issue in bandit_report.get("results", []):
+for issue in bandit_issues:
     issue_text = issue.get("issue_text", "Unknown issue")
     if issue_text not in seen_issues:
         suggestion = get_fix_suggestion(issue_text)
@@ -45,7 +44,7 @@ for issue in bandit_report.get("results", []):
         seen_issues.add(issue_text)
 
 # Process Safety Issues
-for vuln in safety_report.get("vulnerabilities", []):
+for vuln in safety_issues:
     vuln_text = vuln.get("vulnerability", "Unknown vulnerability")
     if vuln_text not in seen_issues:
         suggestion = get_fix_suggestion(vuln_text)
