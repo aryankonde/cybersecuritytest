@@ -1,7 +1,7 @@
-Flask==2.1.2
-# Add other project dependencies here
-
-# Security Tools
-bandit
-safety
-flake8
+# Vulnerable dependencies to trigger Safety warnings
+django==2.2.0         # Known security issues
+flask==1.0.2          # Outdated, security vulnerabilities
+requests==2.18.4      # Old version, vulnerable to CVEs
+urllib3==1.23         # Security vulnerabilities detected
+pillow==6.2.0         # Known security issues
+numpy==1.16.0         # Outdated, may trigger warnings

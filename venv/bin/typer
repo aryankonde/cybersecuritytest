@@ -1,0 +1,10 @@
+#!/bin/sh
+'''exec' "/mnt/3E78D8FD78D8B53D/college/Ty_Sem_2/Cyber Security/test/cybersecuritytest/venv/bin/python3" "$0" "$@"
+' '''
+# -*- coding: utf-8 -*-
+import re
+import sys
+from typer.cli import main
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(main())
